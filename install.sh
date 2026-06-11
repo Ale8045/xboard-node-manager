@@ -2,17 +2,15 @@
 set -e
 
 REPO="Ale8045/xboard-node-manager"
-SCRIPT_URL="https://raw.githubusercontent.com/${REPO}/main/xboard-node.sh"
-INSTALL_PATH="/usr/local/bin/xboard-node"
+URL="https://raw.githubusercontent.com/${REPO}/main/xboard-node.sh"
+PATH_FILE="/usr/local/bin/xboard-node"
 
 apt update -y
-apt install -y curl wget unzip tar cron lsof nano ca-certificates
+apt install -y curl wget unzip tar nano lsof ca-certificates cron
 
-curl -fsSL "$SCRIPT_URL" -o "$INSTALL_PATH"
-chmod +x "$INSTALL_PATH"
+curl -fsSL "$URL" -o "$PATH_FILE"
+chmod +x "$PATH_FILE"
+ln -sf "$PATH_FILE" /usr/bin/xnode
 
-ln -sf "$INSTALL_PATH" /usr/bin/xnode
-
-echo "安装完成！"
-echo "以后输入 xnode 即可打开菜单"
+echo "安装完成，以后输入 xnode 打开菜单"
 xnode
