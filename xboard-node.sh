@@ -7,43 +7,66 @@ Blue="\033[36m"
 Font="\033[0m"
 
 XRAYR_DIR="/etc/XrayR"
-XRAYR_BIN="/usr/local/bin/XrayR"
 
 check_root() {
     if [ "$EUID" -ne 0 ]; then
-        echo -e "${Red}请使用 root 用户运行${Font}"
+        echo -e "${Red}请使用 root 运行${Font}"
         exit 1
     fi
 }
 
 install_base() {
     apt update -y
-    apt install -y curl wget unzip tar cron lsof socat ca-certificates
+    apt install -y curl wget unzip tar cron lsof nano ca-certificates
 }
 
-install_xrayr() {
-    clear
-    echo -e "${Blue}==============================${Font}"
-    echo -e "${Blue} 安装 XrayR 对接 Xboard 节点${Font}"
-    echo -e "${Blue}==============================${Font}"
+install_xrayr_core() {
+    if ! command -v XrayR >/dev/null 2>&1; then
+        echo -e "${Yellow}正在安装 XrayR...${Font}"
+        bash <(curl -Ls https://raw.githubusercontent.com/XrayR-project/XrayR-release/master/install.sh)
+    fi
+}
 
-    read -p "请输入 Xboard 面板地址，例如 https://xxx.com: " PANEL_URL
-    read -p "请输入节点 ID: " NODE_ID
-    read -p "请输入通讯密钥 ApiKey: " API_KEY
-
+select_protocol() {
     echo
-    echo "请选择节点类型："
-    echo "1. V2ray"
-    echo "2. Trojan"
-    echo "3. Shadowsocks"
-    read -p "请选择 [1-3]: " NODE_TYPE_ID
+    echo "请选择协议："
+    echo "1. VMess"
+    echo "2. VLESS"
+    echo "3. Trojan"
+    echo "4. Shadowsocks"
+    echo "5. Hysteria2"
+    echo "6. AnyTLS"
+    echo
+    read -p "请选择 [1-6]: " p
 
-    case "$NODE_TYPE_ID" in
-        1) NODE_TYPE="V2ray" ;;
-        2) NODE_TYPE="Trojan" ;;
-        3) NODE_TYPE="Shadowsocks" ;;
+    case "$p" in
+        1) NODE_TYPE="V2ray"; ENABLE_VLESS="false" ;;
+        2) NODE_TYPE="V2ray"; ENABLE_VLESS="true" ;;
+        3) NODE_TYPE="Trojan"; ENABLE_VLESS="false" ;;
+        4) NODE_TYPE="Shadowsocks"; ENABLE_VLESS="false" ;;
+        5)
+            echo -e "${Yellow}Hysteria2 后续需要 sing-box 版本，目前先不写入 XrayR。${Font}"
+            exit 0
+            ;;
+        6)
+            echo -e "${Yellow}AnyTLS 后续需要单独后端版本，目前先不写入 XrayR。${Font}"
+            exit 0
+            ;;
         *) echo -e "${Red}选择错误${Font}"; exit 1 ;;
     esac
+}
+
+install_node() {
+    clear
+    echo -e "${Blue}==============================${Font}"
+    echo -e "${Blue} Xboard 后端节点安装${Font}"
+    echo -e "${Blue}==============================${Font}"
+
+    select_protocol
+
+    read -p "请输入 Xboard 面板地址，例如 https://xxx.com: " PANEL_URL
+    read -p "请输入 NodeID: " NODE_ID
+    read -p "请输入 ApiKey: " API_KEY
 
     if [ -z "$PANEL_URL" ] || [ -z "$NODE_ID" ] || [ -z "$API_KEY" ]; then
         echo -e "${Red}参数不能为空${Font}"
@@ -51,9 +74,7 @@ install_xrayr() {
     fi
 
     install_base
-
-    echo -e "${Yellow}正在安装 XrayR...${Font}"
-    bash <(curl -Ls https://raw.githubusercontent.com/XrayR-project/XrayR-release/master/install.sh)
+    install_xrayr_core
 
     mkdir -p "$XRAYR_DIR"
 
@@ -64,11 +85,8 @@ Log:
   ErrorPath: ''
 
 DnsConfigPath: ''
-
 RouteConfigPath: ''
-
 InboundConfigPath: ''
-
 OutboundConfigPath: ''
 
 ConnetionConfig:
@@ -86,7 +104,7 @@ Nodes:
       NodeID: $NODE_ID
       NodeType: $NODE_TYPE
       Timeout: 30
-      EnableVless: false
+      EnableVless: $ENABLE_VLESS
       EnableXTLS: false
       SpeedLimit: 0
       DeviceLimit: 0
@@ -121,50 +139,48 @@ EOF
     systemctl restart XrayR
 
     echo
-    echo -e "${Green}XrayR 节点安装完成！${Font}"
-    echo -e "${Yellow}面板地址：${PANEL_URL}${Font}"
-    echo -e "${Yellow}节点 ID：${NODE_ID}${Font}"
-    echo -e "${Yellow}节点类型：${NODE_TYPE}${Font}"
+    echo -e "${Green}节点安装完成！${Font}"
+    echo -e "协议：${Yellow}${NODE_TYPE}${Font}"
+    echo -e "面板：${Yellow}${PANEL_URL}${Font}"
+    echo -e "NodeID：${Yellow}${NODE_ID}${Font}"
     echo
+    echo "可输入 xnode 查看菜单"
 }
 
-status_xrayr() {
+status_node() {
     systemctl status XrayR --no-pager
 }
 
-restart_xrayr() {
-    systemctl restart XrayR
-    echo -e "${Green}XrayR 已重启${Font}"
+logs_node() {
+    journalctl -u XrayR -f --no-pager
 }
 
-logs_xrayr() {
-    journalctl -u XrayR -f --no-pager
+restart_node() {
+    systemctl restart XrayR
+    echo -e "${Green}节点已重启${Font}"
 }
 
 edit_config() {
     nano "$XRAYR_DIR/config.yml"
     systemctl restart XrayR
-}
-
-uninstall_xrayr() {
-    echo -e "${Red}确认卸载 XrayR？${Font}"
-    read -p "输入 y 确认: " confirm
-
-    if [ "$confirm" = "y" ] || [ "$confirm" = "Y" ]; then
-        systemctl stop XrayR 2>/dev/null
-        systemctl disable XrayR 2>/dev/null
-        rm -f /etc/systemd/system/XrayR.service
-        rm -rf /etc/XrayR
-        rm -f /usr/local/bin/XrayR
-        systemctl daemon-reload
-        echo -e "${Green}卸载完成${Font}"
-    else
-        echo -e "${Yellow}已取消${Font}"
-    fi
+    echo -e "${Green}配置已保存并重启${Font}"
 }
 
 show_config() {
     cat "$XRAYR_DIR/config.yml"
+}
+
+uninstall_node() {
+    read -p "确认卸载 XrayR？输入 y 确认: " c
+    if [ "$c" = "y" ] || [ "$c" = "Y" ]; then
+        systemctl stop XrayR 2>/dev/null
+        systemctl disable XrayR 2>/dev/null
+        rm -rf /etc/XrayR
+        rm -f /usr/local/bin/XrayR
+        rm -f /etc/systemd/system/XrayR.service
+        systemctl daemon-reload
+        echo -e "${Green}卸载完成${Font}"
+    fi
 }
 
 menu() {
@@ -172,25 +188,25 @@ menu() {
     echo -e "${Blue}==============================${Font}"
     echo -e "${Blue} Xboard Node Manager v1.0${Font}"
     echo -e "${Blue}==============================${Font}"
-    echo "1. 安装 XrayR 对接节点"
-    echo "2. 查看节点状态"
-    echo "3. 查看节点日志"
+    echo "1. 新建节点"
+    echo "2. 查看状态"
+    echo "3. 查看日志"
     echo "4. 重启节点"
-    echo "5. 修改节点配置"
-    echo "6. 查看当前配置"
-    echo "7. 卸载 XrayR"
+    echo "5. 修改配置"
+    echo "6. 查看配置"
+    echo "7. 卸载节点"
     echo "0. 退出"
     echo -e "${Blue}==============================${Font}"
     read -p "请选择: " num
 
     case "$num" in
-        1) install_xrayr ;;
-        2) status_xrayr ;;
-        3) logs_xrayr ;;
-        4) restart_xrayr ;;
+        1) install_node ;;
+        2) status_node ;;
+        3) logs_node ;;
+        4) restart_node ;;
         5) edit_config ;;
         6) show_config ;;
-        7) uninstall_xrayr ;;
+        7) uninstall_node ;;
         0) exit 0 ;;
         *) echo -e "${Red}输入错误${Font}" ;;
     esac
